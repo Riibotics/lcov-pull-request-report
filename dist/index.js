@@ -20118,7 +20118,7 @@ async function run() {
         console.log(`githubToken: ${githubToken}`);
 
         const data = await parseLcov(lcovFile, workingDirectory);
-        const changedFiles = await getChangedFiles(octokit);
+        const changedFiles = await getChangedFiles(octokit, workingDirectory);
 
         const allFilesLcov = sumLcov(data);
         const allFilesPassed = isPassed(allFilesLcov, allFilesMinimumCoverage);
@@ -20163,7 +20163,7 @@ async function run() {
 
 run();
 
-async function getChangedFiles(octokit) {
+async function getChangedFiles(octokit, workingDirectory) {
     if (github.context.eventName != 'pull_request') return new Set();
     console.log('Getting changed files...');
     const { data: { files: files } } = await octokit.rest.repos.compareCommitsWithBasehead({
@@ -20172,7 +20172,7 @@ async function getChangedFiles(octokit) {
         basehead: `${github.context.payload.pull_request.base.sha}...${github.context.payload.pull_request.head.sha}`,
         per_page: 1,
     });
-    const fileNames = files.map((file) => external_path_.resolve(file.filename));
+    const fileNames = files.map((file) => external_path_.resolve(workingDirectory, file.filename));
     console.log(`Changed files: ${JSON.stringify(fileNames)}`)
     return new Set(fileNames);
 }
