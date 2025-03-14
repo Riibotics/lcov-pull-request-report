@@ -35,7 +35,8 @@ async function run() {
         const changedFilesLcov = sumLcov(data, changedFiles);
         const hasChangedFiles = changedFilesLcov != undefined;
         const changedFilesPassed = isPassed(changedFilesLcov, changedFilesMinimumCoverage);
-        const changedFilesData = [...data].filter((item) => changedFiles.has(item.file));
+        const changedFilesData = JSON.parse(JSON.stringify(data)).filter((item) => changedFiles.has(item.file));
+
         const changedIndividualFilesResults = changedFilesData.map((file) =>
             calculateCoverage(file, changedFilesMinimumCoverage)
         );
