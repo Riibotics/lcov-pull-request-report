@@ -19,16 +19,11 @@ async function run() {
         const githubToken = core.getInput('github-token');
         const octokit = github.getOctokit(githubToken);
 
-        console.log(`lcovFile: ${lcovFile}`);
-        console.log(`commentTitle: ${commentTitle}`);
-        console.log(`workingDirectory: ${workingDirectory}`);
-        console.log(`allFilesMinimumCoverage: ${allFilesMinimumCoverage}`);
-        console.log(`changedFilesMinimumCoverage: ${changedFilesMinimumCoverage}`);
-        console.log(`artifactName: ${artifactName}`);
-        console.log(`githubToken: ${githubToken}`);
-
         const data = await parseLcov(lcovFile, workingDirectory);
         const changedFiles = await getChangedFiles(octokit);
+
+        console.log(`[DEBUG] Changed files (Set):`, [...changedFiles]);
+        console.log(`[DEBUG] LCOV files (all):`, data.map(d => d.file));
 
         const allFilesLcov = sumLcov(data);
         const allFilesPassed = isPassed(allFilesLcov, allFilesMinimumCoverage);
@@ -36,6 +31,9 @@ async function run() {
         const hasChangedFiles = changedFilesLcov != undefined;
         const changedFilesPassed = isPassed(changedFilesLcov, changedFilesMinimumCoverage);
         const changedFilesData = JSON.parse(JSON.stringify(data)).filter((item) => changedFiles.has(item.file));
+
+        console.log(`[DEBUG] Matched files count:`, changedFilesData.length);
+        console.log(`[DEBUG] Matched files:`, changedFilesData.map(d => d.file));
 
         const changedIndividualFilesResults = changedFilesData.map((file) =>
             calculateCoverage(file, changedFilesMinimumCoverage)
@@ -46,11 +44,7 @@ async function run() {
         if (!bothPassed) {
             core.setFailed('Coverage is below the minimum');
         }
-        console.log(`allFilesPassed: ${allFilesPassed}`);
-        console.log(`hasChangedFiles: ${hasChangedFiles}`);
-        console.log(`changedFilesPassed: ${changedFilesPassed}`);
-        console.log(`bothPassed: ${bothPassed}`);
-
+        
         const commentId = renderCommentId(commentTitle);
 
         const comment = commentId +
@@ -61,7 +55,19 @@ async function run() {
             renderLcovOverall(changedFilesLcov, changedFilesMinimumCoverage, changedFilesPassed) +
             renderLcovFiles(data, changedFiles) +
             renderChangedFilesIndividual(changedIndividualFilesResults, changedFilesMinimumCoverage);
-        console.log(comment);
+
+        const testMatches = [];
+        for (const lcovFile of data) {
+            for (const changedFile of changedFiles) {
+                console.log(`[DEBUG] Comparing:\n  LCOV: ${lcovFile.file}\n  Changed: ${changedFile}`);
+                console.log(`[DEBUG] Equal?:`, lcovFile.file === changedFile);
+        
+                if (lcovFile.file === changedFile) {
+                    testMatches.push(lcovFile.file);
+                }
+            }
+        }
+        console.log(`[DEBUG] Manual matching found:`, testMatches);
 
         if (github.context.eventName == 'pull_request') {
             await postComment(octokit, commentId, comment);
@@ -83,7 +89,6 @@ run();
 
 async function getChangedFiles(octokit) {
     if (github.context.eventName != 'pull_request') return new Set();
-    console.log('Getting changed files...');
     const { data: { files: files } } = await octokit.rest.repos.compareCommitsWithBasehead({
         owner: github.context.repo.owner,
         repo: github.context.repo.repo,
@@ -91,7 +96,8 @@ async function getChangedFiles(octokit) {
         per_page: 1,
     });
     const fileNames = files.map((file) => path.resolve(file.filename));
-    console.log(`Changed files: ${JSON.stringify(fileNames)}`)
+    
+    console.log(`[DEBUG] Changed files resolved paths:`, [...fileNames]);
     return new Set(fileNames);
 }
 
@@ -147,6 +153,8 @@ async function parseLcov(lcovFile, workingDirectory) {
             }
             resolve(data.map((item) => {
                 item.file = path.resolve(workingDirectory, item.file);
+
+                console.log(`[DEBUG] LCOV file path:`, item.file);
                 return item;
             }));
         });
