@@ -19,31 +19,26 @@ async function run() {
         const githubToken = core.getInput('github-token');
         const octokit = github.getOctokit(githubToken);
 
-        console.log(`lcovFile: ${lcovFile}`);
-        console.log(`commentTitle: ${commentTitle}`);
-        console.log(`workingDirectory: ${workingDirectory}`);
-        console.log(`allFilesMinimumCoverage: ${allFilesMinimumCoverage}`);
-        console.log(`changedFilesMinimumCoverage: ${changedFilesMinimumCoverage}`);
-        console.log(`artifactName: ${artifactName}`);
-        console.log(`githubToken: ${githubToken}`);
-
         const data = await parseLcov(lcovFile, workingDirectory);
-        const changedFiles = await getChangedFiles(octokit);
+        const changedFiles = await getChangedFiles(octokit, workingDirectory);
 
         const allFilesLcov = sumLcov(data);
         const allFilesPassed = isPassed(allFilesLcov, allFilesMinimumCoverage);
         const changedFilesLcov = sumLcov(data, changedFiles);
         const hasChangedFiles = changedFilesLcov != undefined;
         const changedFilesPassed = isPassed(changedFilesLcov, changedFilesMinimumCoverage);
-        const bothPassed = allFilesPassed && (!hasChangedFiles || changedFilesPassed);
+        const changedFilesData = data.filter((item) => changedFiles.has(item.file));
+
+        const changedIndividualFilesResults = changedFilesData.map((file) =>
+            calculateCoverage(file, changedFilesMinimumCoverage)
+        );
+        const changedIndividualFilesAllPassed = changedIndividualFilesResults.every((result) => result.passed);
+
+        const bothPassed = allFilesPassed && (!hasChangedFiles || (changedFilesPassed && changedIndividualFilesAllPassed));
         if (!bothPassed) {
             core.setFailed('Coverage is below the minimum');
         }
-        console.log(`allFilesPassed: ${allFilesPassed}`);
-        console.log(`hasChangedFiles: ${hasChangedFiles}`);
-        console.log(`changedFilesPassed: ${changedFilesPassed}`);
-        console.log(`bothPassed: ${bothPassed}`);
-
+        
         const commentId = renderCommentId(commentTitle);
 
         const comment = commentId +
@@ -52,8 +47,8 @@ async function run() {
             renderLcovOverall(allFilesLcov, allFilesMinimumCoverage, allFilesPassed) +
             renderSectionHeader('Changed Files') +
             renderLcovOverall(changedFilesLcov, changedFilesMinimumCoverage, changedFilesPassed) +
-            renderLcovFiles(data, changedFiles);
-        console.log(comment);
+            renderLcovFiles(data, changedFiles) +
+            renderChangedFilesIndividual(changedIndividualFilesResults, changedFilesMinimumCoverage);
 
         if (github.context.eventName == 'pull_request') {
             await postComment(octokit, commentId, comment);
@@ -73,17 +68,16 @@ async function run() {
 
 run();
 
-async function getChangedFiles(octokit) {
+async function getChangedFiles(octokit, workingDirectory) {
     if (github.context.eventName != 'pull_request') return new Set();
-    console.log('Getting changed files...');
-    const { data: { files: files } } = await octokit.rest.repos.compareCommitsWithBasehead({
+    const { data: { files } } = await octokit.rest.repos.compareCommitsWithBasehead({
         owner: github.context.repo.owner,
         repo: github.context.repo.repo,
         basehead: `${github.context.payload.pull_request.base.sha}...${github.context.payload.pull_request.head.sha}`,
         per_page: 1,
     });
-    const fileNames = files.map((file) => path.resolve(file.filename));
-    console.log(`Changed files: ${JSON.stringify(fileNames)}`)
+    const fileNames = files.map((file) => path.resolve(workingDirectory ,file.filename));
+    
     return new Set(fileNames);
 }
 
@@ -108,7 +102,6 @@ async function getComments(octokit) {
         issue_number: github.context.payload.pull_request.number,
         per_page: 100,
     });
-    console.log(`Comments: ${JSON.stringify(comments.map((comment) => comment.body))}`);
     return comments;
 }
 
@@ -139,6 +132,7 @@ async function parseLcov(lcovFile, workingDirectory) {
             }
             resolve(data.map((item) => {
                 item.file = path.resolve(workingDirectory, item.file);
+
                 return item;
             }));
         });
@@ -251,4 +245,31 @@ async function uploadArtifact(lcovFile, artifactName, workingDirectory) {
     const globber = await glob.create(`${artifactPath}/**/*.*`);
     const files = await globber.glob();
     await artifact.uploadArtifact(artifactName, files, artifactPath);
+}
+
+function calculateCoverage(file, minimumCoverage) {
+    const coverage = 
+        file.lines.found === 0 ? 0 : (file.lines.hit * 100) / file.lines.found;
+    const passed = coverage >= minimumCoverage;
+    return { file: file.file, coverage, passed };
+}
+
+function renderChangedFilesIndividual(changedFilesResults, minimumCoverage) {
+    if (!changedFilesResults || changedFilesResults.length === 0) {
+        return '';
+    }
+
+    let output = `#### Individual Changed Files (Minimum: ${minimumCoverage}%)\n\n`;
+    const table = [['File', 'Coverage', 'Status']];
+    
+    changedFilesResults.forEach((result) => {
+        table.push([
+            path.basename(result.file),
+            `${result.coverage.toFixed(1)}%`,
+            result.passed ? '✅' : '❌',
+        ]);
+    });
+    
+    output += markdownTable(table) + '\n\n';
+    return output;
 }
