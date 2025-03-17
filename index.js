@@ -22,18 +22,12 @@ async function run() {
         const data = await parseLcov(lcovFile, workingDirectory);
         const changedFiles = await getChangedFiles(octokit, workingDirectory);
 
-        console.log(`[DEBUG] Changed files (Set):`, [...changedFiles]);
-        console.log(`[DEBUG] LCOV files (all):`, data.map(d => d.file));
-
         const allFilesLcov = sumLcov(data);
         const allFilesPassed = isPassed(allFilesLcov, allFilesMinimumCoverage);
         const changedFilesLcov = sumLcov(data, changedFiles);
         const hasChangedFiles = changedFilesLcov != undefined;
         const changedFilesPassed = isPassed(changedFilesLcov, changedFilesMinimumCoverage);
         const changedFilesData = JSON.parse(JSON.stringify(data)).filter((item) => changedFiles.has(item.file));
-
-        console.log(`[DEBUG] Matched files count:`, changedFilesData.length);
-        console.log(`[DEBUG] Matched files:`, changedFilesData.map(d => d.file));
 
         const changedIndividualFilesResults = changedFilesData.map((file) =>
             calculateCoverage(file, changedFilesMinimumCoverage)
@@ -55,19 +49,6 @@ async function run() {
             renderLcovOverall(changedFilesLcov, changedFilesMinimumCoverage, changedFilesPassed) +
             renderLcovFiles(data, changedFiles) +
             renderChangedFilesIndividual(changedIndividualFilesResults, changedFilesMinimumCoverage);
-
-        const testMatches = [];
-        for (const lcovFile of data) {
-            for (const changedFile of changedFiles) {
-                console.log(`[DEBUG] Comparing:\n  LCOV: ${lcovFile.file}\n  Changed: ${changedFile}`);
-                console.log(`[DEBUG] Equal?:`, lcovFile.file === changedFile);
-        
-                if (lcovFile.file === changedFile) {
-                    testMatches.push(lcovFile.file);
-                }
-            }
-        }
-        console.log(`[DEBUG] Manual matching found:`, testMatches);
 
         if (github.context.eventName == 'pull_request') {
             await postComment(octokit, commentId, comment);
@@ -97,7 +78,6 @@ async function getChangedFiles(octokit, workingDirectory) {
     });
     const fileNames = files.map((file) => path.resolve(workingDirectory ,file.filename));
     
-    console.log(`[DEBUG] Changed files resolved paths:`, [...fileNames]);
     return new Set(fileNames);
 }
 
@@ -122,7 +102,6 @@ async function getComments(octokit) {
         issue_number: github.context.payload.pull_request.number,
         per_page: 100,
     });
-    console.log(`Comments: ${JSON.stringify(comments.map((comment) => comment.body))}`);
     return comments;
 }
 
@@ -154,7 +133,6 @@ async function parseLcov(lcovFile, workingDirectory) {
             resolve(data.map((item) => {
                 item.file = path.resolve(workingDirectory, item.file);
 
-                console.log(`[DEBUG] LCOV file path:`, item.file);
                 return item;
             }));
         });
