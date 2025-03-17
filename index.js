@@ -70,7 +70,7 @@ run();
 
 async function getChangedFiles(octokit, workingDirectory) {
     if (github.context.eventName != 'pull_request') return new Set();
-    const { data: { files: files } } = await octokit.rest.repos.compareCommitsWithBasehead({
+    const { data: { files } } = await octokit.rest.repos.compareCommitsWithBasehead({
         owner: github.context.repo.owner,
         repo: github.context.repo.repo,
         basehead: `${github.context.payload.pull_request.base.sha}...${github.context.payload.pull_request.head.sha}`,
@@ -270,6 +270,6 @@ function renderChangedFilesIndividual(changedFilesResults, minimumCoverage) {
         ]);
     });
     
-    output += markdownTable(table) + "\n\n";
+    output += markdownTable(table) + '\n\n';
     return output;
 }
