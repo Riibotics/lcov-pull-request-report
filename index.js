@@ -20,7 +20,7 @@ async function run() {
         const octokit = github.getOctokit(githubToken);
 
         const data = await parseLcov(lcovFile, workingDirectory);
-        const changedFiles = await getChangedFiles(octokit);
+        const changedFiles = await getChangedFiles(octokit, workingDirectory);
 
         console.log(`[DEBUG] Changed files (Set):`, [...changedFiles]);
         console.log(`[DEBUG] LCOV files (all):`, data.map(d => d.file));
@@ -87,7 +87,7 @@ async function run() {
 
 run();
 
-async function getChangedFiles(octokit) {
+async function getChangedFiles(octokit, workingDirectory) {
     if (github.context.eventName != 'pull_request') return new Set();
     const { data: { files: files } } = await octokit.rest.repos.compareCommitsWithBasehead({
         owner: github.context.repo.owner,
@@ -95,7 +95,7 @@ async function getChangedFiles(octokit) {
         basehead: `${github.context.payload.pull_request.base.sha}...${github.context.payload.pull_request.head.sha}`,
         per_page: 1,
     });
-    const fileNames = files.map((file) => path.resolve(file.filename));
+    const fileNames = files.map((file) => path.resolve(workingDirectory ,file.filename));
     
     console.log(`[DEBUG] Changed files resolved paths:`, [...fileNames]);
     return new Set(fileNames);
