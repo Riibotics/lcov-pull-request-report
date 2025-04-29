@@ -199,7 +199,7 @@ function renderLcovFiles(data, files, minimumCoverage) {
     const table = [['File', 'Lines', 'Functions', 'Branches', 'Status']];
 
     data.forEach(item => {
-        const lineCoverage = item.lines.found === 0 ? 0 : (item.lines.hit * 100) / item.lines.found;
+        const lineCoverage = calculateLineCoverage(item.lines);
         const passed = minimumCoverage ? lineCoverage >= minimumCoverage : true;
         
         table.push(
@@ -251,7 +251,7 @@ function checkAllIndividualFilesPassed(files, minimumCoverage) {
     }
     
     return files.every(file => {
-        const lineCoverage = file.lines.found === 0 ? 0 : (file.lines.hit * 100) / file.lines.found;
+        const lineCoverage = calculateLineCoverage(file.lines);
         return lineCoverage >= minimumCoverage;
     });
 }
@@ -263,4 +263,8 @@ async function uploadArtifact(lcovFile, artifactName, workingDirectory) {
     const globber = await glob.create(`${artifactPath}/**/*.*`);
     const files = await globber.glob();
     await artifact.uploadArtifact(artifactName, files, artifactPath);
+}
+
+function calculateLineCoverage(lines) {
+    return lines.found === 0 ? 0 : (lines.hit * 100) / lines.found;
 }
