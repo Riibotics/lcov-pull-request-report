@@ -27,14 +27,12 @@ async function run() {
         const changedFilesLcov = sumLcov(data, changedFiles);
         const hasChangedFiles = changedFilesLcov != undefined;
         const changedFilesPassed = isPassed(changedFilesLcov, changedFilesMinimumCoverage);
+        
+        // Check if all individual changed files meet minimum coverage
         const changedFilesData = data.filter((item) => changedFiles.has(item.file));
-
-        const changedIndividualFilesResults = changedFilesData.map((file) =>
-            calculateCoverage(file, changedFilesMinimumCoverage)
-        );
-        const changedIndividualFilesAllPassed = changedIndividualFilesResults.every((result) => result.passed);
-
-        const bothPassed = allFilesPassed && (!hasChangedFiles || (changedFilesPassed && changedIndividualFilesAllPassed));
+        const allIndividualFilesPassed = checkAllIndividualFilesPassed(changedFilesData, changedFilesMinimumCoverage);
+        
+        const bothPassed = allFilesPassed && (!hasChangedFiles || (changedFilesPassed && allIndividualFilesPassed));
         if (!bothPassed) {
             core.setFailed('Coverage is below the minimum');
         }
@@ -47,8 +45,7 @@ async function run() {
             renderLcovOverall(allFilesLcov, allFilesMinimumCoverage, allFilesPassed) +
             renderSectionHeader('Changed Files') +
             renderLcovOverall(changedFilesLcov, changedFilesMinimumCoverage, changedFilesPassed) +
-            renderLcovFiles(data, changedFiles) +
-            renderChangedFilesIndividual(changedIndividualFilesResults, changedFilesMinimumCoverage);
+            renderLcovFiles(data, changedFiles, changedFilesMinimumCoverage);
 
         if (github.context.eventName == 'pull_request') {
             await postComment(octokit, commentId, comment);
@@ -185,7 +182,7 @@ function renderLcovOverall(data, minimumCoverage, isPassed) {
     return output;
 }
 
-function renderLcovFiles(data, files) {
+function renderLcovFiles(data, files, minimumCoverage) {
     if (files != undefined) {
         data = data.filter((item) => files.has(item.file));
     }
@@ -194,20 +191,30 @@ function renderLcovFiles(data, files) {
         return '';
     }
 
-    const table = [['File', 'Lines', 'Functions', 'Branches']];
+    let output = '';
+    if (minimumCoverage) {
+        output += `#### Files (Minimum Coverage: ${minimumCoverage}%)\n\n`;
+    }
+
+    const table = [['File', 'Lines', 'Functions', 'Branches', 'Status']];
 
     data.forEach(item => {
+        const lineCoverage = calculateLineCoverage(item.lines);
+        const passed = minimumCoverage ? lineCoverage >= minimumCoverage : true;
+        
         table.push(
             [
                 path.basename(item.file),
                 renderLcovPercentage(item.lines),
                 renderLcovPercentage(item.functions),
                 renderLcovPercentage(item.branches),
+                renderPassed(passed)
             ]
         )
     });
 
-    return markdownTable(table);
+    output += markdownTable(table) + '\n\n';
+    return output;
 }
 
 function renderLcovPercentage(lcov) {
@@ -238,6 +245,17 @@ function renderPassed(isPassed) {
     }
 }
 
+function checkAllIndividualFilesPassed(files, minimumCoverage) {
+    if (!files || files.length === 0 || !minimumCoverage) {
+        return true;
+    }
+    
+    return files.every(file => {
+        const lineCoverage = calculateLineCoverage(file.lines);
+        return lineCoverage >= minimumCoverage;
+    });
+}
+
 async function uploadArtifact(lcovFile, artifactName, workingDirectory) {
     const artifact = new DefaultArtifactClient();
     const artifactPath = path.resolve(uuidv4());
@@ -247,29 +265,6 @@ async function uploadArtifact(lcovFile, artifactName, workingDirectory) {
     await artifact.uploadArtifact(artifactName, files, artifactPath);
 }
 
-function calculateCoverage(file, minimumCoverage) {
-    const coverage = 
-        file.lines.found === 0 ? 0 : (file.lines.hit * 100) / file.lines.found;
-    const passed = coverage >= minimumCoverage;
-    return { file: file.file, coverage, passed };
-}
-
-function renderChangedFilesIndividual(changedFilesResults, minimumCoverage) {
-    if (!changedFilesResults || changedFilesResults.length === 0) {
-        return '';
-    }
-
-    let output = `#### Individual Changed Files (Minimum: ${minimumCoverage}%)\n\n`;
-    const table = [['File', 'Coverage', 'Status']];
-    
-    changedFilesResults.forEach((result) => {
-        table.push([
-            path.basename(result.file),
-            `${result.coverage.toFixed(1)}%`,
-            result.passed ? '✅' : '❌',
-        ]);
-    });
-    
-    output += markdownTable(table) + '\n\n';
-    return output;
+function calculateLineCoverage(lines) {
+    return lines.found === 0 ? 0 : (lines.hit * 100) / lines.found;
 }
