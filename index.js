@@ -28,7 +28,11 @@ async function run() {
         const hasChangedFiles = changedFilesLcov != undefined;
         const changedFilesPassed = isPassed(changedFilesLcov, changedFilesMinimumCoverage);
         
-        const bothPassed = allFilesPassed && (!hasChangedFiles || changedFilesPassed);
+        // Check if all individual changed files meet minimum coverage
+        const changedFilesData = data.filter((item) => changedFiles.has(item.file));
+        const allIndividualFilesPassed = checkAllIndividualFilesPassed(changedFilesData, changedFilesMinimumCoverage);
+        
+        const bothPassed = allFilesPassed && (!hasChangedFiles || (changedFilesPassed && allIndividualFilesPassed));
         if (!bothPassed) {
             core.setFailed('Coverage is below the minimum');
         }
@@ -239,6 +243,17 @@ function renderPassed(isPassed) {
     } else {
         return '❌';
     }
+}
+
+function checkAllIndividualFilesPassed(files, minimumCoverage) {
+    if (!files || files.length === 0 || !minimumCoverage) {
+        return true;
+    }
+    
+    return files.every(file => {
+        const lineCoverage = file.lines.found === 0 ? 0 : (file.lines.hit * 100) / file.lines.found;
+        return lineCoverage >= minimumCoverage;
+    });
 }
 
 async function uploadArtifact(lcovFile, artifactName, workingDirectory) {
